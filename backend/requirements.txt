@@ -1,4 +1,4 @@
-flask
+fastapi
 ultralytics
 opencv-python
 numpy
