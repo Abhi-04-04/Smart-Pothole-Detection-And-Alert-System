@@ -1,5 +1,7 @@
-flask
+fastapi
+uvicorn
 ultralytics
 opencv-python
 numpy
-sqlite3
+folium
+psycopg2-binary

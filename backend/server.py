@@ -422,7 +422,9 @@
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-import sqlite3
+import psycopg2
+import os
+# import sqlite3
 import folium
 from ultralytics import YOLO
 import cv2
@@ -434,7 +436,10 @@ from typing import List
 # Initialize FastAPI and YOLO
 app = FastAPI(title="Smart Pothole Detection API")
 model = YOLO("best_finetuned.pt")
-DB_NAME = "potholes.db"
+# DB_NAME = "potholes.db"
+DATABASE_URL = os.getenv("postgresql://potholelocator_user:ANgLJCDyGMTJplBTRR2uqFzfhd81ex5s@dpg-d7p0ahcm0tmc73dev290-a/potholelocator")
+def get_connection():
+    return psycopg2.connect(DATABASE_URL)
 
 # Pydantic models for data validation
 class PotholeBase(BaseModel):
@@ -449,24 +454,39 @@ class RepairVote(BaseModel):
 # Database initialization
 # -------------------------
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+
+    conn = get_connection()
+
     cursor = conn.cursor()
+
     cursor.execute("""
+
     CREATE TABLE IF NOT EXISTS potholes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        latitude REAL,
-        longitude REAL,
+
+        id SERIAL PRIMARY KEY,
+
+        latitude DOUBLE PRECISION,
+
+        longitude DOUBLE PRECISION,
+
         severity TEXT,
+
         status TEXT DEFAULT 'ACTIVE',
+
         report_count INTEGER DEFAULT 1,
+
         repair_votes INTEGER DEFAULT 0,
+
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
         last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
     )
+
     """)
+
     conn.commit()
     conn.close()
-
 init_db()
 
 # -------------------------
@@ -489,7 +509,7 @@ async def home():
 
 @app.post("/report_pothole")
 async def report_pothole(data: PotholeBase):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("SELECT * FROM potholes WHERE status='ACTIVE'")
@@ -500,13 +520,13 @@ async def report_pothole(data: PotholeBase):
             cursor.execute("""
                 UPDATE potholes 
                 SET report_count = report_count + 1, last_seen_at = CURRENT_TIMESTAMP 
-                WHERE id = ?
+                WHERE id = %s
             """, (pothole[0],))
             conn.commit()
             conn.close()
             return {"message": "Duplicate pothole updated"}
 
-    cursor.execute("INSERT INTO potholes (latitude, longitude, severity) VALUES (?, ?, ?)",
+    cursor.execute("INSERT INTO potholes (latitude, longitude, severity) VALUES (%s, %s, %s)",
                    (data.latitude, data.longitude, data.severity))
     conn.commit()
     conn.close()
@@ -514,7 +534,7 @@ async def report_pothole(data: PotholeBase):
 
 @app.get("/all_potholes")
 async def all_potholes():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM potholes")
     potholes = cursor.fetchall()
@@ -527,7 +547,7 @@ async def all_potholes():
 
 @app.get("/potholes_map", response_class=HTMLResponse)
 async def potholes_map():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM potholes")
     potholes = cursor.fetchall()
@@ -550,9 +570,9 @@ async def detect_from_mobile(latitude: float = Form(...), longitude: float = For
 
     results = model(frame)
     if len(results[0].boxes) > 0:
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO potholes (latitude, longitude, severity) VALUES (?, ?, ?)",
+        cursor.execute("INSERT INTO potholes (latitude, longitude, severity) VALUES (%s, %s, %s)",
                        (latitude, longitude, "HIGH"))
         conn.commit()
         conn.close()
@@ -563,7 +583,7 @@ async def detect_from_mobile(latitude: float = Form(...), longitude: float = For
 # Add this to your FastAPI server.py if missing
 @app.get("/nearby_potholes")
 async def nearby_potholes(lat: float, lon: float):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM potholes WHERE status='ACTIVE'")
     potholes = cursor.fetchall()
@@ -585,7 +605,7 @@ async def nearby_potholes(lat: float, lon: float):
 
 @app.post("/auto_repair_check")
 async def auto_repair_check(lat: float, lon: float):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT id, latitude, longitude, repair_votes FROM potholes WHERE status='ACTIVE'")
     potholes = cursor.fetchall()
@@ -595,7 +615,7 @@ async def auto_repair_check(lat: float, lon: float):
         if distance(lat, lon, p_lat, p_lon) < 10:
             new_votes = votes + 1
             status = 'FIXED' if new_votes >= 3 else 'ACTIVE'
-            cursor.execute("UPDATE potholes SET repair_votes = ?, status = ? WHERE id = ?", (new_votes, status, p_id))
+            cursor.execute("UPDATE potholes SET repair_votes = %s, status = %s WHERE id = %s", (new_votes, status, p_id))
             updated.append(p_id)
             
     conn.commit()
