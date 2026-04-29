@@ -1,6 +1,7 @@
 fastapi
+uvicorn
 ultralytics
 opencv-python
 numpy
-sqlite3
-pydantic
+folium
+psycopg2-binary
