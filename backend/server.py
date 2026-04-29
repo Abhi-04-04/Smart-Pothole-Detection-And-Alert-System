@@ -437,7 +437,7 @@ from typing import List
 app = FastAPI(title="Smart Pothole Detection API")
 model = YOLO("best_finetuned.pt")
 # DB_NAME = "potholes.db"
-DATABASE_URL = os.getenv("postgresql://potholelocator_user:ANgLJCDyGMTJplBTRR2uqFzfhd81ex5s@dpg-d7p0ahcm0tmc73dev290-a/potholelocator")
+DATABASE_URL = os.getenv("DATABASE_URL,postgresql://potholelocator_user:ANgLJCDyGMTJplBTRR2uqFzfhd81ex5s@host:5432/potholelocator")
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
 

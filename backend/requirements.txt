@@ -1,8 +1,9 @@
 fastapi
 uvicorn
 ultralytics
-opencv-python
 numpy
 folium
 psycopg2-binary
 pydantic
+opencv-python-headless
+python-multipart
