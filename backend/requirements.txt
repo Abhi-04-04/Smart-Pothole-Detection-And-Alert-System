@@ -3,3 +3,4 @@ ultralytics
 opencv-python
 numpy
 sqlite3
+pydantic
