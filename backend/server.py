@@ -437,7 +437,7 @@ from typing import List
 app = FastAPI(title="Smart Pothole Detection API")
 model = YOLO("best_finetuned.pt")
 # DB_NAME = "potholes.db"
-DATABASE_URL = os.getenv("postgresql://potholelocator_user:ANgLJCDyGMTJplBTRR2uqFzfhd81ex5s@dpg-d7p0ahcm0tmc73dev290-a/potholelocator")
+DATABASE_URL = os.getenv("DATABASE_URL")
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
 
@@ -621,3 +621,9 @@ async def auto_repair_check(lat: float, lon: float):
     conn.commit()
     conn.close()
     return {"updated_ids": updated}
+
+if __name__ == "__main__":
+    import uvicorn
+    # Render provides the PORT environment variable
+    port = int(os.environ.get("PORT", 10000)) 
+    uvicorn.run(app, host="0.0.0.0", port=port)
