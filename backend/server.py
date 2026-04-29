@@ -435,7 +435,7 @@ from typing import List
 
 # Initialize FastAPI and YOLO
 app = FastAPI(title="Smart Pothole Detection API")
-model = YOLO("best_finetuned.pt")
+model = YOLO("backend/best_finetuned.pt")
 # DB_NAME = "potholes.db"
 DATABASE_URL = os.getenv("DATABASE_URL")
 def get_connection():
