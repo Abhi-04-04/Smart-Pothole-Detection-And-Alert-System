@@ -24,7 +24,7 @@ class PotholeDetectionPipeline:
         self.gps = GPSTracker()
 
         # Backend API endpoint
-        self.backend_url = "http://127.0.0.1:8000/report_pothole"
+        self.backend_url = "https://pothole-detection-1-i67w.onrender.com/report_pothole"
         # self.backend_url = "http://127.0.0"
 
         # Frame skipping counter (for performance)
@@ -79,6 +79,8 @@ class PotholeDetectionPipeline:
 
         boxes = results[0].boxes
 
+        confidence = float(boxes.conf[0])
+
         count = len(boxes)
 
         severity = "NONE"
@@ -116,7 +118,8 @@ class PotholeDetectionPipeline:
 
                     "latitude": latitude,
                     "longitude": longitude,
-                    "severity": severity
+                    "severity": severity,
+                    "confidence": confidence
 
                 }
 
@@ -171,7 +174,7 @@ class PotholeDetectionPipeline:
 
                     requests.post(
 
-                        "http://127.0.0.1:8000/auto_repair_check",
+                        "https://pothole-detection-1-i67w.onrender.com/auto_repair_check",
                         # "http://127.0.0",
 
                         params={

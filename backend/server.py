@@ -446,6 +446,7 @@ class PotholeBase(BaseModel):
     latitude: float
     longitude: float
     severity: str
+    confidence: float = 0.5
 
 class RepairVote(BaseModel):
     id: int
@@ -463,27 +464,28 @@ def init_db():
 
     CREATE TABLE IF NOT EXISTS potholes (
 
-        id SERIAL PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
 
-        latitude DOUBLE PRECISION,
+      latitude DOUBLE PRECISION,
+      longitude DOUBLE PRECISION,
 
-        longitude DOUBLE PRECISION,
+      severity TEXT,
+  
+      confidence DOUBLE PRECISION DEFAULT 0.5,
 
-        severity TEXT,
+      status TEXT DEFAULT 'ACTIVE',
 
-        status TEXT DEFAULT 'ACTIVE',
+      report_count INTEGER DEFAULT 1,
 
-        report_count INTEGER DEFAULT 1,
+      repair_votes INTEGER DEFAULT 0,
 
-        repair_votes INTEGER DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 
-        last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+ )
 
-    )
-
-    """)
+ """)
 
     conn.commit()
     conn.close()
@@ -509,28 +511,85 @@ async def home():
 
 @app.post("/report_pothole")
 async def report_pothole(data: PotholeBase):
+
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM potholes WHERE status='ACTIVE'")
+    cursor.execute(
+        "SELECT * FROM potholes WHERE status='ACTIVE'"
+    )
+
     potholes = cursor.fetchall()
 
-    for pothole in potholes:
-        if distance(data.latitude, data.longitude, pothole[1], pothole[2]) < 10:
-            cursor.execute("""
-                UPDATE potholes 
-                SET report_count = report_count + 1, last_seen_at = CURRENT_TIMESTAMP 
-                WHERE id = %s
-            """, (pothole[0],))
-            conn.commit()
-            conn.close()
-            return {"message": "Duplicate pothole updated"}
 
-    cursor.execute("INSERT INTO potholes (latitude, longitude, severity) VALUES (%s, %s, %s)",
-                   (data.latitude, data.longitude, data.severity))
+    for pothole in potholes:
+
+        dist = distance(
+            data.latitude,
+            data.longitude,
+            pothole[1],
+            pothole[2]
+        )
+
+
+        if dist < 10:
+
+            severity_match = (
+                data.severity == pothole[3]
+            )
+
+            confidence_match = (
+                abs(data.confidence - pothole[4]) < 0.25
+            )
+
+
+            if severity_match and confidence_match:
+
+                cursor.execute("""
+
+                    UPDATE potholes
+
+                    SET report_count = report_count + 1,
+                        last_seen_at = CURRENT_TIMESTAMP
+
+                    WHERE id = %s
+
+                """, (pothole[0],))
+
+
+                conn.commit()
+                conn.close()
+
+                return {
+                    "message": "Duplicate pothole merged"
+                }
+
+
+    # Insert new pothole if no duplicate found
+
+    cursor.execute("""
+
+        INSERT INTO potholes
+        (latitude, longitude, severity, confidence)
+
+        VALUES (%s, %s, %s, %s)
+
+    """, (
+
+        data.latitude,
+        data.longitude,
+        data.severity,
+        data.confidence
+
+    ))
+
+
     conn.commit()
     conn.close()
-    return {"message": "New pothole recorded"}
+
+    return {
+        "message": "New pothole recorded"
+    }
 
 @app.get("/all_potholes")
 async def all_potholes():
@@ -563,24 +622,87 @@ async def potholes_map():
     return p_map._repr_html_()
 
 @app.post("/detect_from_mobile")
-async def detect_from_mobile(latitude: float = Form(...), longitude: float = Form(...), image: UploadFile = File(...)):
+async def detect_from_mobile(
+    latitude: float = Form(...),
+    longitude: float = Form(...),
+    image: UploadFile = File(...)
+):
+
     contents = await image.read()
+
     npimg = np.frombuffer(contents, np.uint8)
+
     frame = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
 
-    results = model(frame)
-    if len(results[0].boxes) > 0:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO potholes (latitude, longitude, severity) VALUES (%s, %s, %s)",
-                       (latitude, longitude, "HIGH"))
-        conn.commit()
-        conn.close()
-        return {"status": "detected", "message": "Pothole recorded"}
-    
-    return {"status": "none", "message": "No pothole detected"}
 
-# Add this to your FastAPI server.py if missing
+    results = model(frame)
+
+    boxes = results[0].boxes
+
+
+    if len(boxes) > 0:
+
+        confidence = float(boxes.conf[0])
+
+
+        if confidence > 0.80:
+            severity = "HIGH"
+
+        elif confidence > 0.55:
+            severity = "MEDIUM"
+
+        else:
+            severity = "LOW"
+
+
+        conn = get_connection()
+
+        cursor = conn.cursor()
+
+
+        cursor.execute("""
+
+            INSERT INTO potholes
+            (latitude, longitude, severity, confidence)
+
+            VALUES (%s, %s, %s, %s)
+
+        """, (
+
+            latitude,
+            longitude,
+            severity,
+            confidence
+
+        ))
+
+
+        conn.commit()
+
+        conn.close()
+
+
+        return {
+
+            "status": "detected",
+
+            "confidence": confidence,
+
+            "severity": severity,
+
+            "message": "Pothole recorded"
+
+        }
+
+
+    return {
+
+        "status": "none",
+
+        "message": "No pothole detected"
+
+    }
+
 @app.get("/nearby_potholes")
 async def nearby_potholes(lat: float, lon: float):
     conn = get_connection()

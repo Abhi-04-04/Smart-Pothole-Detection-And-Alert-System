@@ -5,9 +5,16 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
+import 'background_service.dart';
 
-void main() {
-runApp(const PotholeApp());
+void main() async {
+
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await initializeService();
+
+  runApp(const PotholeApp());
+
 }
 
 class PotholeApp extends StatelessWidget {
@@ -30,7 +37,8 @@ State<MapScreen> createState() => _MapScreenState();
 
 class _MapScreenState extends State<MapScreen> {
 
-final String backendIP = "http://10.10.48.104:8000";
+// final String backendIP = "http://10.10.48.104:8000";
+final String backendIP = "https://pothole-detection-1-i67w.onrender.com";
 
 List<Marker> potholeMarkers = [];
 
