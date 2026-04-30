@@ -6,6 +6,8 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'background_service.dart';
+import 'package:camera/camera.dart';
+import 'dart:async';
 
 void main() async {
 
@@ -36,7 +38,10 @@ State<MapScreen> createState() => _MapScreenState();
 }
 
 class _MapScreenState extends State<MapScreen> {
-
+CameraController? cameraController;
+List<CameraDescription>? cameras;
+bool autoDetectEnabled = false;
+Timer? detectionTimer;
 // final String backendIP = "http://10.10.48.104:8000";
 final String backendIP = "https://pothole-detection-1-i67w.onrender.com";
 
@@ -47,7 +52,54 @@ bool alertShown = false;
 // -----------------------------
 // LOAD NEARBY POTHOLES
 // -----------------------------
+Future<void> startAutoDetection() async {
+  cameras = await availableCameras();
 
+  cameraController = CameraController(
+    cameras ![0],
+    ResolutionPreset.medium,
+    enableAudio: false,
+  );
+  await cameraController!.initialize();
+  autoDetectEnabled = true;
+  detectionTimer = Timer.periodic(
+    const Duration(seconds: 15),
+    (_) => sendAutoFrame(),
+  ); 
+}
+
+Future<void> sendAutoFrame() async {
+  if (!autoDetectEnabled || cameraController == null) return;
+
+  try {
+    final image = await cameraController!.takePicture();
+    Position position = await Geolocator.getCurrentPosition();
+
+    var request = http.MultipartRequest(
+      "POST",
+      Uri.parse("$backendIP/detect_from_mobile"),
+    );
+
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        "image",
+        image.path,
+      ),
+    );
+
+    request.fields["latitude"] = position.latitude.toString();
+    request.fields["longitude"] = position.longitude.toString();
+
+    await request.send();
+
+    await loadNearbyPotholes();
+  } catch (_) {}
+}
+
+void stopAutoDetection() {
+  detectionTimer?.cancel();
+  autoDetectEnabled = false;
+}
 Future<void> loadNearbyPotholes() async {
 
  
@@ -124,13 +176,11 @@ if (response.statusCode == 200) {
           onTap: () async {
 
             await http.post(
-              Uri.parse("$backendIP/auto_repair_check"),
-              headers: {
-                "Content-Type": "application/json"
-              },
-              body: json.encode({
-                "id": pothole["id"]
-              }),
+              Uri.parse(
+                "$backendIP/auto_repair_check"
+                "?lat=${pothole["latitude"]}"
+                "&lon=${pothole["longitude"]}"
+                ),
             );
 
             ScaffoldMessenger.of(context).showSnackBar(
@@ -139,6 +189,8 @@ if (response.statusCode == 200) {
                     Text("Repair confirmation submitted"),
               ),
             );
+
+            await loadNearbyPotholes();
 
           },
 
@@ -266,12 +318,37 @@ return FutureBuilder<Position>(
       // CAMERA DETECTION BUTTON
       // -----------------------------
 
-      floatingActionButton: FloatingActionButton(
-
-        onPressed: captureAndDetect,
-
-        child: const Icon(Icons.camera_alt),
-
+      floatingActionButton:Column(
+        mainAxisAlignment:MainAxisAlignment.end,
+        children:[
+          FloatingActionButton(
+            heroTag:"manual",
+            onPressed: captureAndDetect,
+            child: const Icon(Icons.camera_alt),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton(
+            heroTag:"auto",
+            backgroundColor:
+                autoDetectEnabled ? Colors.red : Colors.green,
+            onPressed: () {
+              if (autoDetectEnabled) {
+                stopAutoDetection();
+              }
+              else {
+                startAutoDetection();
+              }
+              setState(() {
+                
+              });
+            },
+            child: Icon(
+              autoDetectEnabled
+                  ? Icons.stop
+                  : Icons.play_arrow,
+            ),
+          ),
+        ],
       ),
 
 

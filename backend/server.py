@@ -430,12 +430,12 @@ from ultralytics import YOLO
 import cv2
 import numpy as np
 from math import radians, cos, sin, sqrt, atan2
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 # Initialize FastAPI and YOLO
 app = FastAPI(title="Smart Pothole Detection API")
-model = YOLO("backend/best_finetuned.pt")
+model = YOLO("best_finetuned.pt")
 # DB_NAME = "potholes.db"
 DATABASE_URL = os.getenv("DATABASE_URL")
 def get_connection():
@@ -645,51 +645,47 @@ async def detect_from_mobile(
         confidence = float(boxes.conf[0])
 
 
-        if confidence > 0.80:
-            severity = "HIGH"
+        # Extract bounding-box size
+        x1, y1, x2, y2 = map(int, boxes.xyxy[0])
 
-        elif confidence > 0.55:
+        bbox_area = (x2 - x1) * (y2 - y1)
+
+        frame_area = frame.shape[0] * frame.shape[1]
+
+        bbox_ratio = bbox_area / frame_area
+
+
+        # Confidence-weighted severity scoring
+        severity_score = (
+            0.6 * confidence +
+            0.4 * bbox_ratio
+        )
+
+
+        if severity_score < 0.35:
+            severity = "LOW"
+
+        elif severity_score < 0.65:
             severity = "MEDIUM"
 
         else:
-            severity = "LOW"
+            severity = "HIGH"
 
 
-        conn = get_connection()
-
-        cursor = conn.cursor()
-
-
-        cursor.execute("""
-
-            INSERT INTO potholes
-            (latitude, longitude, severity, confidence)
-
-            VALUES (%s, %s, %s, %s)
-
-        """, (
-
-            latitude,
-            longitude,
-            severity,
-            confidence
-
-        ))
-
-
-        conn.commit()
-
-        conn.close()
-
+        await report_pothole(
+          PotholeBase(
+            latitude=latitude,
+            longitude=longitude,    
+            severity=severity,
+            confidence=confidence 
+        )  
+    )
 
         return {
 
             "status": "detected",
-
             "confidence": confidence,
-
             "severity": severity,
-
             "message": "Pothole recorded"
 
         }
@@ -698,7 +694,6 @@ async def detect_from_mobile(
     return {
 
         "status": "none",
-
         "message": "No pothole detected"
 
     }
@@ -714,7 +709,7 @@ async def nearby_potholes(lat: float, lon: float):
     nearby_list = []
     for p in potholes:
         dist = distance(lat, lon, p[1], p[2])
-        if dist <= 200: # 200 meters
+        if dist <= 100: #  meters
             nearby_list.append({
                 "id": p[0],
                 "latitude": p[1],
@@ -729,15 +724,17 @@ async def nearby_potholes(lat: float, lon: float):
 async def auto_repair_check(lat: float, lon: float):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, latitude, longitude, repair_votes FROM potholes WHERE status='ACTIVE'")
+    cursor.execute("SELECT id, latitude, longitude, repair_votes,last_seen_at FROM potholes WHERE status='ACTIVE'")
     potholes = cursor.fetchall()
-    
     updated = []
-    for p_id, p_lat, p_lon, votes in potholes:
+    for p_id, p_lat, p_lon, votes, last_seen_at in potholes:
         if distance(lat, lon, p_lat, p_lon) < 10:
+            if last_seen_at and (
+                datetime.now(timezone.utc) - last_seen_at)< timedelta(seconds=20):
+                continue
             new_votes = votes + 1
             status = 'FIXED' if new_votes >= 3 else 'ACTIVE'
-            cursor.execute("UPDATE potholes SET repair_votes = %s, status = %s WHERE id = %s", (new_votes, status, p_id))
+            cursor.execute("UPDATE potholes SET repair_votes = %s, status = %s,last_seen_at =CURRENT_TIMESTAMP WHERE id = %s", (new_votes, status, p_id))
             updated.append(p_id)
             
     conn.commit()
